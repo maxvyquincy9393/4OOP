@@ -10,11 +10,17 @@ project ini mendemonstrasikan :
 4. integrasi dengan gemini AI API
 5. Error handling & logging
 """
-
+from dotenv import load_dotenv
+import os
+import google.generativeai as genai
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 from datetime import datetime
 import json
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
 
 # ============================================
 # 1. INTERFACE - Kontrak untuk semua AI Provider
@@ -49,27 +55,51 @@ class AIProviderInterface(ABC):
 
 class GeminiProvider(AIProviderInterface):
     """Implenetasi konkret dari AIPROVIDERINTERFACE untuk Gemini.
-    Prinsip SOLID : single responbility - hanya hanel Gemini API"""
+    Prinsip SOLID : single responbility - hanya hanel Gemini API
+    mendukung apu key dari .env"""
 
-    def __init__(self,prompt : str)-> str:
-        """Generate respon menggunakan GEMINI api
-        Dalam implementasi nyata:
-        model = genai.GenerativeModel(self.model_name)
-        response = model.generate_response(prompt)
+    def __init__(self,api_key: str = None):
+        # jika api key tidak ada -> minta  lewat input
+        if api_key is None or api_key.strip() == '':
+            api_key = os.getenv("GEMINI_API_KEY")
+
+            if api_key is None or api_key.strip() == '':
+                api_key = input("Gemini API KEY")
+
+        self.api_key = api_key.strip()
+        self.model_name = "gemini-2.5-flash"
+
+        self._initialize_client()
+
+    def _initialize_client(self):
+        print(f"[GEMINI] Client Initialized ({self.api_key[:6]}****)")
+        try:
+            genai.configure(api_key=self.api_key)
+            print(f"[GEMINI] cliient initialized")
+        except Exception as e:
+            print(f"Gagal inisialisasi")
+
+    def generate_response(self, prompt: str) -> str:
         """
-        # simulasi respon
-        return f"[Gemini AI response] understood yout query: {prompt}. Processing with advance AI..."
+        menggunakan api dari gemini .
+        """
+        try:
+            model = genai.GenerativeModel(self.model_name)
+            response = model.generate_content(prompt)
+            return response.text
 
-    def get_provider_name(self)-> str:
-        return "Google Gemini"
+        except Exception as e:
+            return f"[GEMINI error] {str(e)}"
 
-    def is_available(self)-> bool:
-        #cek koneksi api ( simulasi )
-        return len(self.api.key) > 0
+    def get_provider_name(self) -> str:
+        return "Gemini"
 
-    # ============================================
-    # Mock Provider untuk Testing
-    # ============================================
+    def is_available(self) -> bool:
+        return len(self.api_key) > 0
+
+# ============================================
+# Mock Provider untuk Testing
+# ============================================
 class MockAIProvider(AIProviderInterface):
     """Provider palsu untuk testing tanpa api"""
 
@@ -101,31 +131,25 @@ class PlainTextFormatter(ABC):
 
 class DetailedFormatter(ResponseFormatterStrategy):
     """Format response dengan detail metadata"""
-    def format(self,response: str, metadata: Dict) -> str:
-        timestamp = metadata.get("timestamp, 'N/A'")
-        provider = metadata.get("provider", 'Unknown')
 
-        formatted = f"""
-══════════════════════════════════════╗
-║  AI ASSISTANT RESPONSE              ║
-╚═════════════════════════════════════╝
-Provider: {provider}
-Time: {timestamp}
-─────────────────────────────────────
+    def format(self,response: str, metadata: Dict) -> str:
+        return f"""
+╔══════════════════════════════════════╗
+║        AI ASSISTANT RESPONSE         ║
+╚══════════════════════════════════════╝
+Provider: {metadata['provider']}
+Time: {metadata['timestamp']}
+───────────────────────────────────────
 {response}
-─────────────────────────────────────
+───────────────────────────────────────
 """
-        return formatted
-
-class JsonFormatter(ResponseFormatterStrategy):
-    """Format response sebgai json"""
-
-    def format(self,response: str, metadata: Dict) -> str:
-        output = {
-            "response": response,
-            "metadata": metadata
-        }
-        return json.dumps(output, indent=2)
+class JSONFormatter(ResponseFormatterStrategy):
+    """Format response dengan detail metadata"""
+    def format(self, response: str , metadata : Dict) -> str:
+        return json.dumps({
+            "response" : response,
+            "metadata" : metadata
+        }, indent=2)
 
 # ============================================
 # 4. OBSERVER PATTERN - Event Logging
@@ -136,10 +160,13 @@ class Observer(ABC):
     def update(self, event: str, data : Dict):
         pass
 
-    def __init__(self,event : str, data : Dict):
-        log_entry = f"[{self.name}] {event}: {data}"
-        self.log.append(log_entry)
-        print(f"{log_entry}")
+
+class LoggerObserver(Observer):
+    def __init__(self, name="SystemLogger"):
+        self.name = name
+
+    def update(self, event: str, data : Dict):
+        print(f"[LOG :{self.name}] {event} -> {data} ")
 
 class MetricCollector(Observer):
     """Collect metrics untuk analytics"""
@@ -158,13 +185,17 @@ class MetricCollector(Observer):
 # 5. FACTORY PATTERN - AI Provider Factory
 # ============================================
 class AIProviderFactory:
-    """Factory Patern : Create AI providers based on type
-    Prinsip SOLID : Dependency inversion - depend om abstraction"""
+    """
+    Factory Patern : Create AI providers based on type
+    Prinsip SOLID : Dependency inversion - depend on abstraction
+    """
 
     @staticmethod
     def create_provider(provider_type : str, **kwargs) -> AIProviderInterface:
-        """Factory method untuk create provider
-        mudah extend dengan provider baru tanpa ubah jode existing"""
+        """
+        Factory method untuk create provider
+        mudah extend dengan provider baru tanpa ubah code existing
+        """
 
         providers = {
             'gemini' : GeminiProvider,
@@ -181,10 +212,12 @@ class AIProviderFactory:
 # ============================================
 
 class AIAssistantManager:
-    """Main aplication class yang mengintegrasikan semua component
+    """
+    Main aplication class yang mengintegrasikan semua component
     Prinsip SOLID :
     - single responbility :Manage AI abstraction
-     - dependency Inversion : depend on interface, not concrate class"""
+    - dependency Inversion : depend on interface, not concrate class
+    """
 
     def __init__(self, provider : AIProviderInterface):
         self.provider = provider
@@ -208,38 +241,96 @@ class AIAssistantManager:
         self.formatter = formatter
 
     # core functionality
-
     def ask(self, question : str)-> str:
-        """Main method untuk bertanya ke ai
-        menerapkan semua pattern yang sudah dibuat"""
+        """
+        Main method untuk bertanya ke ai
+        menerapkan semua pattern yang sudah dibuat
+        """
 
         self.notify_observers("request_started",{
             "question" : question,
             "provider" : self.provider.get_provider_name()
         })
 
-    #chck porvider availableity
+        #chck porvider availableity
         if not self.provider.is_available():
-            error_msg = "Ai provider not available"
-            self.notify_observers("error", {"message" : error_msg})
-            return error_msg
+            return "[error] provider is not available"
 
-        try:
-             # generate response from ai
-            response = self.provider.generate_response(question)
+        response = self.provider.generate_response(question)
 
-            #simpan ke history
+        entry = {
+            "timestamp" : datetime.now().isoformat(),
+            "question" : question,
+            "response" : response,
+            "provider" : self.provider.get_provider_name(),
+        }
 
-            converstation_entry = {
-                "timestamp"    : conversation_entry["timestamp"],
-                "provider" : self.provider.get_provider_name(),
-                "tokens "  : len(response.split()),
-                "provider" : self.provider.get_privider_name()
-            }
-            self.cconversation_history.append(converstation_entry)
+        self.conversation_history.append(entry)
 
-            # format response menggunakan strategy
-            metadata = {
-                "timestamp" : conversation_entry["timestamp"],
-                
-            }
+        metadata = {
+            "timestamp" : entry["timestamp"],
+            "provider"  : entry["provider"],
+            "tokens"    : len(response.split())
+        }
+
+        output = self.formatter.format(response, metadata)
+
+        self.notify_observers("request_completed", metadata)
+
+        return output
+
+    def get_conversation_summary(self):
+        """Dapatkan summary dari conversation history"""
+        if not self.conversation_history:
+            return "No conversation yet"
+
+        output = "\n=== CONVERSATION HISTORY ===\n"
+        for i, c in enumerate(self.conversation_history,1):
+            output += f"{i}. {c['timestamp']}\n Q: {c['question']}\nA: {c['response'][:80]}...\n"
+
+        return output
+
+# ============================================
+# 7. DEMO APPLICATION
+# ============================================
+
+
+def demo_gemini():
+    """Demo dengan egmini api
+    uncomment dan gunakan key asli untuk production
+    """
+
+    print("\n" + "=" * 60)
+    print("DEMO 4 . GEMINI API")
+    print("=" * 60)
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    provider  = AIProviderFactory.create_provider("gemini", api_key = api_key)
+
+    assistant = AIAssistantManager(provider)
+    assistant.attach_observer(LoggerObserver())
+    assistant.attach_observer(MetricCollector())
+    assistant.set_formatter(DetailedFormatter())
+
+    question = input("INPUT QUESTION : ")
+    print(assistant.ask(question))
+
+if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    api_key = os.getenv("GEMINI_API_KEY")
+    provider = AIProviderFactory.create_provider("gemini", api_key = api_key)
+    assistant = AIAssistantManager(provider)
+
+    assistant.attach_observer(LoggerObserver())
+    assistant.attach_observer(MetricCollector())
+    assistant.set_formatter(DetailedFormatter())
+
+    while True:
+        q = input("User : ")
+
+        if q.lower() in ["exit", "quit", "stop"]:
+            print("Goodbye")
+            break
+        print(assistant.ask(q))
+
+
