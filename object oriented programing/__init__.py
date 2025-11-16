@@ -2,7 +2,7 @@ from hvac.api.system_backend import health
 
 
 class Hero: # template
-
+    # instace variabel
     def __init__(self,InputName,health, InputPower, InputArmor ):
         self.name = InputName
         self.health = health
