@@ -64,3 +64,6 @@ htmlcov/
 
 # Misc
 # ===========================
+.idea/
+__pycache__/
+.vscode/

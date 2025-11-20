@@ -59,7 +59,7 @@ class Book:
         """
 
         # validasi input sebelim set value
-        if isinstance(status, bool):
+        if isinstance(status, bool):       # digunakan untuk mengecek apakah sebuah objek merupakan instance (objek) dari class/tipe tertentu
             self._available = status
         else:
             raise ValueError("status is not boolean")
